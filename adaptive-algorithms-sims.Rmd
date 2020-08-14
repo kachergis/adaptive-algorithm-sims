@@ -1,0 +1,37 @@
+---
+title: "Test Adaptive Algorithms for Educational Games"
+author: "George"
+date: "7/16/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Define the Stimuli and Difficulties
+
+Our pilot will use upper- and lower-case letters, ordered by decreasing frequency (here ordered alphabetically for convenience).
+
+```{r define-stimuli}
+literacy_stim = c(LETTERS, letters)
+numeracy_stim = c(1:25, 0, 26:51)
+
+# priority queues (priority scale is arbitrary, but higher = easier)
+litQ = data.frame(stim=literacy_stim, priority=seq(length(literacy_stim), 1))
+numQ = data.frame(stim=numeracy_stim, priority=seq(length(numeracy_stim), 1))
+```
+
+## Define Adjustment Function
+
+
+
+```{r pressure, echo=FALSE}
+
+```
+
+
+## Define Learners
+
+Let's start with learners who have a fixed probability *r* of correctly responding to each stimulus.
+
