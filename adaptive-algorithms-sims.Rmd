@@ -7,19 +7,60 @@ output: html_document
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
+library(liqueueR)
 ```
 
+## gloria's first try at priority queue update
+
+```{r example-pq}
+
+q1 <- PriorityQueue$new() # for accessing data
+q2 <- PriorityQueue$new() # for accessing priority
+literacy_stim = c(LETTERS, letters)
+numeracy_stim = c(1:25, 0, 26:51)
+prob_correct <- 0.5 # 0.5 for chance; 0.66 for 2U1D; 0.95 for solid learner
+
+# construct priority queue 
+pr <- 0
+for (val in literacy_stim) {
+  q1$push(val, priority=pr)
+  q2$push(pr, priority=pr)
+  pr <- pr - 0.01
+}
+
+# pop, simulate correct or not, push back
+for (val in seq(30)) {
+  curr_data = q1$pop()
+  curr_pr = q2$pop()
+
+  randnum <- runif(1, min=0, max=1)
+  if (randnum < prob_correct) {
+    q1$push(curr_data, priority = curr_pr - 1)
+    q2$push(curr_pr, priority = curr_pr - 1)
+  } else {
+    q1$push(curr_data, priority = curr_pr - 0.5)
+    q2$push(curr_pr, priority = curr_pr - 0.5)
+  }
+}
+
+# print
+q1
+q2
+
+```
 ## Define the Stimuli and Difficulties
 
 Our pilot will use upper- and lower-case letters, ordered by decreasing frequency (here ordered alphabetically for convenience).
 
 ```{r define-stimuli}
+
 literacy_stim = c(LETTERS, letters)
 numeracy_stim = c(1:25, 0, 26:51)
 
 # priority queues (priority scale is arbitrary, but higher = easier)
 litQ = data.frame(stim=literacy_stim, priority=seq(length(literacy_stim), 1))
 numQ = data.frame(stim=numeracy_stim, priority=seq(length(numeracy_stim), 1))
+
 ```
 
 ## Define Adjustment Function
@@ -27,6 +68,7 @@ numQ = data.frame(stim=numeracy_stim, priority=seq(length(numeracy_stim), 1))
 
 
 ```{r pressure, echo=FALSE}
+
 
 ```
 
