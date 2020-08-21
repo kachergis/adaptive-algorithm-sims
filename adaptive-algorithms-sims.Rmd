@@ -7,138 +7,36 @@ output: html_document
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
-library(liqueueR)
 require(tidyverse)
 ```
 
-## gloria's first try at priority queue update
 
-```{r example-pq}
-CHUNK_SIZE = 8
-CHUNK_PRIORITY_INCREASE = .5
-CORRECT_PRIORITY_INCREASE = 1
-INCORRECT_PRIORITY_DECREASE = .5
-
-# 70 trials per 5 mins, and exposure should be ~40 mins
-NUM_TRIALS = 70 * 8 # realistic estimate of our intervention 
-
-#q1 <- PriorityQueue$new() # for accessing data
-#q2 <- PriorityQueue$new() # for accessing priority
-literacy_stim = c(LETTERS, letters)
-numeracy_stim = c(1:25, 0, 26:51)
-# 0.5 for chance; 0.66 for 2U1D; 0.95 for solid learner
-lit_prob_correct = rep(.5, length(literacy_stim)) # could model learning if we increase these
-num_prob_correct = rep(.5, length(numeracy_stim)) 
-# probs (say, if they get it correct + .1)
-
-# R priority queue: >priority is higher priority (JS version < is higher)
-
-# how many times each stim is selected
-#literacy_stim_freq = rep(0, length(literacy_stim))
-#numeracy_stim_freq = rep(0, length(numeracy_stim))
-#names(literacy_stim_freq) = literacy_stim
-
-#q <- PriorityQueue$new() # for accessing data
-
-# construct priority queue 
-build_priority_queue <- function(stim) {
-  pr <- 0
-  for (i in 1:length(stim)) {
-    q$push(list(stimulus=stim[i], index=i, priority=pr), priority=pr)
-    #q1$push(val, priority=pr)
-    #q2$push(pr, priority=pr)
-    if(i%%CHUNK_SIZE==0) pr = pr + CHUNK_PRIORITY_INCREASE
-    pr <- pr - 0.01
-  }
-  return(q)
-}
-
-#lit_q <- build_priority_queue(literacy_stim)
-#num_q <- build_priority_queue(numeracy_stim)
-
-
-
-run_exp <- function(stimuli, prob_correct, num_trials = 100) {
-  # consider adding NUM_FOILS that changes as we play--changes the probability of correct choice
-  
-  # track data we want to plot
-  stim_dat <- tibble(stimulus = stimuli, 
-                     prob_correct = prob_correct,
-                             freq = 0, # how many times each stim occurs
-                             correct = 0, # if we model learning, track this
-                             start_priority = 0, 
-                             cur_priority = 0)
-  
-  # initialize priorities
-  pr = 0
-  for(i in 1:nrow(stim_dat)) {
-    if(i%%CHUNK_SIZE==0) pr = pr + CHUNK_PRIORITY_INCREASE
-    pr <- pr - 0.01
-    stim_dat[i,]$start_priority = pr
-    stim_dat[i,]$cur_priority = pr
-  }
-  
-# pop, simulate correct or not, push back
-  for (t in seq(num_trials)) {
-    curr_index = which(stim_dat$cur_priority==max(stim_dat$cur_priority)) #
-    #curr_stim = stim_dat[curr_index,]
-    
-    stim_dat[curr_index,]$freq = stim_dat[curr_index,]$freq + 1
-    
-    #index = which(literacy_stim==curr_data$)
-    #literacy_stim_freq[index] = literacy_stim_freq[index] + 1
-    #literacy_stim_data[index,]$freq = literacy_stim_data[index,]$freq + 1
-    
-    randnum <- runif(1, min=0, max=1) # consider replacing with rbinom and using NFOILS to change probability of success
-    if (randnum < stim_dat[curr_index,]$prob_correct) {
-      stim_dat[curr_index,]$cur_priority = stim_dat[curr_index,]$cur_priority - 
-        CORRECT_PRIORITY_INCREASE
-      stim_dat[curr_index,]$correct = stim_dat[curr_index,]$correct + 1
-      # update prob_correct? 
-    } else {
-      stim_dat[curr_index,]$cur_priority = stim_dat[curr_index,]$cur_priority - 
-        INCORRECT_PRIORITY_DECREASE
-    }
-  }
-  return(stim_dat)
-}
-# do couple types of simulation
-# 1) baseline .5 random model, with no learning
-lit_sim_pt5 = run_exp(literacy_stim, lit_prob_correct, num_trials = NUM_TRIALS)
-num_sim_pt5 = run_exp(numeracy_stim, num_prob_correct, num_trials = NUM_TRIALS)
-
-# 2) "realistic": better knowledge of easier stimuli
-num_prob_correct = 1- seq(.01, 1, 1/length(numeracy_stim))
-
-View(run_exp(numeracy_stim, num_prob_correct, num_trials = NUM_TRIALS))
-
-# 3) some kind of learning... increase prob_correct as function of freq  (up to 1)
-
-
-# plot freq, change in priority 
-```
 ## Define the Stimuli and Difficulties
 
 Our pilot will use upper- and lower-case letters, ordered by decreasing frequency (here ordered alphabetically for convenience).
 
 ```{r define-stimuli}
-
 literacy_stim = c(LETTERS, letters)
 numeracy_stim = c(1:25, 0, 26:51)
-
 
 # priority queues (priority scale is arbitrary, but higher = easier)
 litQ = data.frame(stim=literacy_stim, priority=seq(length(literacy_stim), 1))
 numQ = data.frame(stim=numeracy_stim, priority=seq(length(numeracy_stim), 1))
-
 ```
+
 
 ## Define Adjustment Function
 
-
+The adaptive algorithm works in the following way:
 
 ```{r pressure, echo=FALSE}
-
+CHUNK_SIZE = 8
+CHUNK_PRIORITY_INCREASE = .5
+CORRECT_PRIORITY_INCREASE = 1
+INCORRECT_PRIORITY_INCREASE = .5
+CORRECT_PROB_INCREASE = .1 #.05
+INCORRECT_PROB_INCREASE = .05 # .01
+NUM_TRIALS = 70 * 8 # realistic estimate: 70 trials/5 mins, exposure ~40 mins
 
 ```
 
@@ -146,4 +44,145 @@ numQ = data.frame(stim=numeracy_stim, priority=seq(length(numeracy_stim), 1))
 ## Define Learners
 
 Let's start with learners who have a fixed probability *r* of correctly responding to each stimulus.
+
+```{r example-pq}
+
+# 0.5 for chance; 0.66 for 2U1D; 0.95 for solid learner
+# could model learning if we increase these
+lit_prob_correct = rep(.5, length(literacy_stim)) 
+num_prob_correct = rep(.5, length(numeracy_stim)) 
+# probs (say, if they get it correct + .1)
+
+run_exp <- function(stimuli, prob_correct, num_trials = 100, learning = FALSE) {
+  # consider adding NUM_FOILS that changes as we play--changes the probability of correct choice
+  
+  # track data we want to plot
+  stim_dat <- tibble(stimulus = stimuli, 
+                     prob_correct = prob_correct,
+                     freq = 0, # how many times each stim occurs
+                     correct = 0, # if we model learning, track this
+                     start_priority = 0, 
+                     cur_priority = 0)
+  
+  # initialize priorities
+  pr = 0
+  for (i in 1:nrow(stim_dat)) {
+    if (i%%CHUNK_SIZE==0) pr = pr + CHUNK_PRIORITY_INCREASE
+    pr = pr + 0.01
+    stim_dat[i,]$start_priority = pr
+    stim_dat[i,]$cur_priority = pr
+  }
+  
+  # pick next easiest, simulate correct or not, update
+  for (t in seq(num_trials)) {
+    curr_index = which(stim_dat$cur_priority==min(stim_dat$cur_priority)) # find index
+    stim_dat[curr_index,]$freq = stim_dat[curr_index,]$freq + 1 # increase frequency count
+    randnum <- runif(1, min=0, max=1) 
+    # consider replacing with rbinom and using NFOILS to change probability of success
+    
+    if (randnum < stim_dat[curr_index,]$prob_correct) {
+      stim_dat[curr_index,]$cur_priority = 
+        stim_dat[curr_index,]$cur_priority + CORRECT_PRIORITY_INCREASE
+      stim_dat[curr_index,]$correct = stim_dat[curr_index,]$correct + 1 # increase correct count
+      if (learning == TRUE && stim_dat[curr_index,]$prob_correct + CORRECT_PROB_INCREASE < 1) {
+        stim_dat[curr_index,]$prob_correct =
+          stim_dat[curr_index,]$prob_correct + CORRECT_PROB_INCREASE
+      }
+    } else {
+      stim_dat[curr_index,]$cur_priority = 
+        stim_dat[curr_index,]$cur_priority + INCORRECT_PRIORITY_INCREASE
+      if (learning == TRUE && stim_dat[curr_index,]$prob_correct + INCORRECT_PROB_INCREASE < 1) {
+        stim_dat[curr_index,]$prob_correct =
+          stim_dat[curr_index,]$prob_correct + INCORRECT_PROB_INCREASE
+      }
+    }
+  }
+  return(stim_dat)
+}
+```
+
+``` {r make-tables}
+
+make_new_correct_table <- function(orig_table) {
+  new_table <- tibble(stimulus = orig_table$stimulus, 
+                      answer_type = "correct",
+                      frequency = orig_table$correct)
+  return(new_table)
+}
+
+make_new_incorrect_table <- function(orig_table) {
+  new_table <- tibble(stimulus = orig_table$stimulus, 
+                      answer_type = " incorrect",
+                      frequency = orig_table$freq - orig_table$correct)
+  return(new_table)
+}
+
+make_new_new_table <- function(new_table) {
+  new_new_table <- add_row(make_new_incorrect_table(new_table), make_new_correct_table(new_table)) 
+  return(new_new_table)
+}
+
+```
+
+## Now a couple of simulations
+
+``` {r stimulation-1}
+# 1) baseline .5 random model, with no learning
+
+lit_sim_pt5 = run_exp(literacy_stim, lit_prob_correct, num_trials = NUM_TRIALS, learning = FALSE)
+# View(lit_sim_pt5)
+new_lit_sim_pt5_table <- make_new_new_table(lit_sim_pt5)
+
+new_lit_sim_pt5_table$stimulus <- ordered(new_lit_sim_pt5_table$stimulus, levels=c("A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L", "M", "N", "O", "P", "Q", "R", "S", "T", "U", "V", "W", "X", "Y", "Z", "a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k", "l", "m", "n", "o", "p", "q", "r", "s", "t", "u", "v", "w", "x", "y","z"))
+# View(new_lit_sim_pt5_table)         
+
+lit_sim_pt5_plot <- ggplot(data=new_lit_sim_pt5_table, aes(x=stimulus, y=frequency, fill=answer_type)) + geom_bar(stat="identity")
+lit_sim_pt5_plot
+
+num_sim_pt5 = run_exp(numeracy_stim, num_prob_correct, num_trials = NUM_TRIALS, learning = FALSE)
+# View(num_sim_pt5)
+new_num_sim_pt5_table <- make_new_new_table(num_sim_pt5)
+num_sim_pt5_plot <- ggplot(data=new_num_sim_pt5_table, aes(x=stimulus, y=frequency, fill=answer_type)) + geom_bar(stat="identity")
+num_sim_pt5_plot
+```
+
+``` {r simulation-2}
+# 2) "realistic": better knowledge of easier stimuli
+
+lit_prob_correct = 1 - seq(.01, 1, 1/length(literacy_stim))
+lit_sim_easier <- run_exp(literacy_stim, lit_prob_correct, num_trials = NUM_TRIALS, learning = FALSE)
+# View(lit_sim_easier)
+new_lit_sim_easier_table <- make_new_new_table(lit_sim_easier)
+# View(new_lit_sim_easier_table)  
+new_lit_sim_easier_table$stimulus <- ordered(new_lit_sim_easier_table$stimulus, levels=c("A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L", "M", "N", "O", "P", "Q", "R", "S", "T", "U", "V", "W", "X", "Y", "Z", "a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k", "l", "m", "n", "o", "p", "q", "r", "s", "t", "u", "v", "w", "x", "y","z"))
+ #View(new_lit_sim_easier_table)                                         
+
+lit_sim_easier_plot <- ggplot(data=new_lit_sim_easier_table, aes(x=stimulus, y=frequency, fill=answer_type)) + geom_bar(stat="identity")
+lit_sim_easier_plot
+```
+
+``` {r simulation-3}
+# 3) some kind of learning... increase prob_correct as function of freq  (up to 1)
+lit_prob_correct = 1 - seq(.01, 1, 1/length(literacy_stim))
+lit_sim_learning <- run_exp(literacy_stim, lit_prob_correct, num_trials = NUM_TRIALS, learning = TRUE)
+# View(lit_sim_learning)
+new_lit_sim_learning_table <- make_new_new_table(lit_sim_learning)
+# View(new_lit_sim_learning_table)  
+new_lit_sim_learning_table$stimulus <- ordered(new_lit_sim_learning_table$stimulus, levels=c("A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L", "M", "N", "O", "P", "Q", "R", "S", "T", "U", "V", "W", "X", "Y", "Z", "a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k", "l", "m", "n", "o", "p", "q", "r", "s", "t", "u", "v", "w", "x", "y","z"))
+ #View(new_lit_sim_learning_table)                                         
+
+lit_sim_learning_plot <- ggplot(data=new_lit_sim_learning_table, aes(x=stimulus, y=frequency, fill=answer_type)) + geom_bar(stat="identity")
+lit_sim_learning_plot
+
+# plot freq, change in priority 
+
+
+```
+
+``` {r sim-plots}
+library(ggplot2)
+library(RColorBrewer)
+library(ggthemes)
+
+```
 
