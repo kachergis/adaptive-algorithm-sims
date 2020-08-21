@@ -1,6 +1,6 @@
 ---
 title: "Test Adaptive Algorithms for Educational Games"
-author: "George"
+author: "Gloria and George"
 date: "7/16/2020"
 output: html_document
 ---
@@ -34,10 +34,12 @@ CHUNK_SIZE = 8
 CHUNK_PRIORITY_INCREASE = .5
 CORRECT_PRIORITY_INCREASE = 1
 INCORRECT_PRIORITY_INCREASE = .5
-CORRECT_PROB_INCREASE = .1 #.05
+CORRECT_PROB_INCREASE = .5 #.05
 INCORRECT_PROB_INCREASE = .05 # .01
 NUM_TRIALS = 70 * 8 # realistic estimate: 70 trials/5 mins, exposure ~40 mins
-
+MIN_FOILS = 2
+MAX_FOILS = 9 # double-check
+num_foils = 4 # at the start
 ```
 
 
@@ -47,13 +49,13 @@ Let's start with learners who have a fixed probability *r* of correctly respondi
 
 ```{r example-pq}
 
-# 0.5 for chance; 0.66 for 2U1D; 0.95 for solid learner
+# 1 for chance=1/num_foils; 2 for 2U1D; 3.5 for solid learner
 # could model learning if we increase these
-lit_prob_correct = rep(.5, length(literacy_stim)) 
-num_prob_correct = rep(.5, length(numeracy_stim)) 
+lit_prob_correct = rep(1, length(literacy_stim)) 
+num_prob_correct = rep(1, length(numeracy_stim)) 
 # probs (say, if they get it correct + .1)
 
-run_exp <- function(stimuli, prob_correct, num_trials = 100, learning = FALSE) {
+simulate_subject <- function(stimuli, prob_correct, num_trials = 100, learning = FALSE) {
   # consider adding NUM_FOILS that changes as we play--changes the probability of correct choice
   
   # track data we want to plot
@@ -74,32 +76,67 @@ run_exp <- function(stimuli, prob_correct, num_trials = 100, learning = FALSE) {
   }
   
   # pick next easiest, simulate correct or not, update
+  prev_correct = F
   for (t in seq(num_trials)) {
     curr_index = which(stim_dat$cur_priority==min(stim_dat$cur_priority)) # find index
     stim_dat[curr_index,]$freq = stim_dat[curr_index,]$freq + 1 # increase frequency count
-    randnum <- runif(1, min=0, max=1) 
-    # consider replacing with rbinom and using NFOILS to change probability of success
     
-    if (randnum < stim_dat[curr_index,]$prob_correct) {
+    p = stim_dat[curr_index,]$prob_correct / num_foils 
+    if(p>1) p = 1 # can't be >1
+    correcto = rbinom(1, 1, p)
+    
+    if (correcto) {
       stim_dat[curr_index,]$cur_priority = 
         stim_dat[curr_index,]$cur_priority + CORRECT_PRIORITY_INCREASE
       stim_dat[curr_index,]$correct = stim_dat[curr_index,]$correct + 1 # increase correct count
-      if (learning == TRUE && stim_dat[curr_index,]$prob_correct + CORRECT_PROB_INCREASE < 1) {
+      if(prev_correct & t > 1 & num_foils < MAX_FOILS) num_foils = num_foils + 1
+      if (learning == TRUE) {
         stim_dat[curr_index,]$prob_correct =
           stim_dat[curr_index,]$prob_correct + CORRECT_PROB_INCREASE
       }
-    } else {
+      prev_correct = T
+    } else { # wrong
+      # decrease difficulty
+      if(num_foils > MIN_FOILS) num_foils = num_foils - 1
       stim_dat[curr_index,]$cur_priority = 
         stim_dat[curr_index,]$cur_priority + INCORRECT_PRIORITY_INCREASE
-      if (learning == TRUE && stim_dat[curr_index,]$prob_correct + INCORRECT_PROB_INCREASE < 1) {
+      if (learning == TRUE) {
         stim_dat[curr_index,]$prob_correct =
           stim_dat[curr_index,]$prob_correct + INCORRECT_PROB_INCREASE
       }
+      prev_correct = F
     }
   }
   return(stim_dat)
 }
 ```
+
+```{r simulate-experiment}
+simulate_experiment <- function(stimuli, prob_correct, num_trials, learning, Nsubj=10) {
+  dat <- tibble()
+  for(i in 1:Nsubj) {
+    s_dat = simulate_subject(stimuli, prob_correct, num_trials = 560, learning = FALSE)
+    s_dat$sim = i
+    dat <- bind_rows(dat, s_dat)
+  }
+  return(dat)
+}
+
+# test 
+e_dat <- simulate_experiment(literacy_stim, lit_prob_correct, 
+                 num_trials = NUM_TRIALS, learning = F, Nsubj=20)
+
+# summarise results 
+agg <- e_dat %>% group_by(stimulus) %>%
+  mutate(prop_correct = correct / freq,
+         priority_delta = cur_priority - start_priority) %>%
+  summarise(freq = mean(freq), priority_delta = mean(priority_delta),
+            prop_correct = mean(prop_correct)) 
+
+agg %>% ggplot(aes(y=stimulus, x=prop_correct)) + 
+  geom_point() + theme_bw()
+```
+
 
 ``` {r make-tables}
 
@@ -126,10 +163,10 @@ make_new_new_table <- function(new_table) {
 
 ## Now a couple of simulations
 
-``` {r stimulation-1}
+``` {r simulation-1}
 # 1) baseline .5 random model, with no learning
 
-lit_sim_pt5 = run_exp(literacy_stim, lit_prob_correct, num_trials = NUM_TRIALS, learning = FALSE)
+lit_sim_pt5 = simulate_subject(literacy_stim, lit_prob_correct, num_trials = NUM_TRIALS, learning = FALSE)
 # View(lit_sim_pt5)
 new_lit_sim_pt5_table <- make_new_new_table(lit_sim_pt5)
 
@@ -139,7 +176,7 @@ new_lit_sim_pt5_table$stimulus <- ordered(new_lit_sim_pt5_table$stimulus, levels
 lit_sim_pt5_plot <- ggplot(data=new_lit_sim_pt5_table, aes(x=stimulus, y=frequency, fill=answer_type)) + geom_bar(stat="identity")
 lit_sim_pt5_plot
 
-num_sim_pt5 = run_exp(numeracy_stim, num_prob_correct, num_trials = NUM_TRIALS, learning = FALSE)
+num_sim_pt5 = simulate_subject(numeracy_stim, num_prob_correct, num_trials = NUM_TRIALS, learning = FALSE)
 # View(num_sim_pt5)
 new_num_sim_pt5_table <- make_new_new_table(num_sim_pt5)
 num_sim_pt5_plot <- ggplot(data=new_num_sim_pt5_table, aes(x=stimulus, y=frequency, fill=answer_type)) + geom_bar(stat="identity")
@@ -150,7 +187,7 @@ num_sim_pt5_plot
 # 2) "realistic": better knowledge of easier stimuli
 
 lit_prob_correct = 1 - seq(.01, 1, 1/length(literacy_stim))
-lit_sim_easier <- run_exp(literacy_stim, lit_prob_correct, num_trials = NUM_TRIALS, learning = FALSE)
+lit_sim_easier <- simulate_subject(literacy_stim, lit_prob_correct, num_trials = NUM_TRIALS, learning = FALSE)
 # View(lit_sim_easier)
 new_lit_sim_easier_table <- make_new_new_table(lit_sim_easier)
 # View(new_lit_sim_easier_table)  
@@ -164,7 +201,7 @@ lit_sim_easier_plot
 ``` {r simulation-3}
 # 3) some kind of learning... increase prob_correct as function of freq  (up to 1)
 lit_prob_correct = 1 - seq(.01, 1, 1/length(literacy_stim))
-lit_sim_learning <- run_exp(literacy_stim, lit_prob_correct, num_trials = NUM_TRIALS, learning = TRUE)
+lit_sim_learning <- simulate_subject(literacy_stim, lit_prob_correct, num_trials = NUM_TRIALS, learning = TRUE)
 # View(lit_sim_learning)
 new_lit_sim_learning_table <- make_new_new_table(lit_sim_learning)
 # View(new_lit_sim_learning_table)  
