@@ -36,10 +36,13 @@ CORRECT_PRIORITY_INCREASE = 1
 INCORRECT_PRIORITY_INCREASE = .5
 CORRECT_PROB_INCREASE = .5 #.05
 INCORRECT_PROB_INCREASE = .05 # .01
-NUM_TRIALS = 70 * 8 # realistic estimate: 70 trials/5 mins, exposure ~40 mins
+NUM_TRIALS = 520 
+# realistic estimate 560: 70 trials/5 mins, exposure ~40 mins
+# chose 520 based on completing standard curriculum 2x
 MIN_FOILS = 2
-MAX_FOILS = 9 # double-check
-num_foils = 4 # at the start
+MAX_FOILS = 9
+num_foils = 2
+STANDARD_NUM_FOILS = 5
 ```
 
 
@@ -47,17 +50,110 @@ num_foils = 4 # at the start
 
 Let's start with learners who have a fixed probability *r* of correctly responding to each stimulus.
 
-```{r example-pq}
+## Standard Curriculum (SC) Simulations
+
+```{r simulate-standard-subject}
+
+# try half .7 and half .4
+standard_learner_ability = 1
+
+# could model learning if we increase these probs (say, if they get it correct + .1)
+lit_prob_correct = rep(standard_learner_ability, length(literacy_stim))
+
+sigmoid <- function(x) { 1/(1+exp(-x)) }
+
+simulate_standard_subject <- function(stimuli, prob_correct, num_trials = 100, learning = FALSE) {
+  standard_literacy_stim = rep(stimuli, each = 5, times = 2) # 520 trials
+  #standard_literacy_stim = c(standard_literacy_stim, standard_literacy_stim[1:40])
+  
+  # track data we want to plot
+  stim_dat <- tibble(stimulus = stimuli, 
+                     prob_correct = prob_correct,
+                     freq = 0, # how many times each stim occurs
+                     correct = 0) # if we model learning, track this
+            
+  # pick next easiest, simulate correct or not, update
+  prev_correct = F
+  for (t in seq(num_trials)) {
+      cur_stim = standard_literacy_stim[t]
+      cur_stim_idx = which(stim_dat$stimulus==cur_stim)
+        stim_dat[cur_stim_idx,]$freq = stim_dat[cur_stim_idx,]$freq + 1 # increase frequency count
+    
+    p = stim_dat[cur_stim_idx,]$prob_correct / STANDARD_NUM_FOILS
+    if(p>1) p = 1 # can't be >1
+    correcto = rbinom(1, 1, p)
+    
+    if (correcto) {
+      if (learning == TRUE) {
+        stim_dat[cur_stim_idx,]$prob_correct =
+          stim_dat[cur_stim_idx,]$prob_correct + CORRECT_PROB_INCREASE
+      }
+      stim_dat[cur_stim_idx,]$correct = stim_dat[cur_stim_idx,]$correct + 1 
+      prev_correct = T
+    } else { # wrong
+      # decrease difficulty
+      if (learning == TRUE) {
+        stim_dat[cur_stim_idx,]$prob_correct =
+          stim_dat[cur_stim_idx,]$prob_correct + INCORRECT_PROB_INCREASE
+      }
+      prev_correct = F
+    }
+  }
+  return(stim_dat)
+}
+
+simulate_standard_subject(literacy_stim, .5, num_trials = 520, learning = TRUE)
+
+```
+
+```{r simulate-standard-experiment}
+simulate_standard_experiment <- function(stimuli, prob_correct, num_trials, learning, Nsubj=10) {
+  dat <- tibble()
+  for(i in 1:Nsubj) {
+    s_dat = simulate_standard_subject(stimuli, prob_correct, num_trials, learning)
+    s_dat$sim = i
+    dat <- bind_rows(dat, s_dat)
+  }
+  return(dat)
+}
+
+# test 
+e_dat <- simulate_standard_experiment(literacy_stim, lit_prob_correct, 
+                 num_trials = NUM_TRIALS, learning = F, Nsubj=30)
+
+# summarise results 
+agg <- e_dat %>% group_by(stimulus) %>%
+  mutate(prop_correct = correct / freq) %>%
+  summarise(freq = mean(freq), prop_correct = mean(prop_correct)) 
+
+  # summarise(freq = mean(freq), priority_delta = mean(priority_delta),
+  #           prop_correct_Q1 = prop_correct = mean(prop_correct),
+  #           prop_correct_Q2 = prop_correct = mean(prop_correct),
+  #           prop_correct_Q3 = prop_correct = mean(prop_correct),
+  #           prop_correct_Q4 = prop_correct = mean(prop_correct)) 
+# View(agg)
+agg$stimulus <- ordered(agg$stimulus, levels=c("A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L", "M", "N", "O", "P", "Q", "R", "S", "T", "U", "V", "W", "X", "Y", "Z", "a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k", "l", "m", "n", "o", "p", "q", "r", "s", "t", "u", "v", "w", "x", "y","z"))
+agg %>% ggplot(aes(y=stimulus, x=prop_correct)) + 
+  geom_point() + theme_bw() + xlim(0, 1)
+
+ggsave(file="SC-1-F.png", width=5, height=5)
+# file name: "CONDITION-ABILITY-LEARNING"
+```
+
+## Adaptive Algorithm (AA) Simulations
+
+```{r simulate-adaptive-subject}
 
 # 1 for chance=1/num_foils; 2 for 2U1D; 3.5 for solid learner
-# could model learning if we increase these
-lit_prob_correct = rep(1, length(literacy_stim)) 
-num_prob_correct = rep(1, length(numeracy_stim)) 
-# probs (say, if they get it correct + .1)
+learner_ability = 3.5
 
-simulate_subject <- function(stimuli, prob_correct, num_trials = 100, learning = FALSE) {
-  # consider adding NUM_FOILS that changes as we play--changes the probability of correct choice
-  
+# could model learning if we increase these
+# probs (say, if they get it correct + .1)
+lit_prob_correct = rep(learner_ability, length(literacy_stim)) 
+num_prob_correct = rep(learner_ability, length(numeracy_stim)) 
+
+simulate_adaptive_subject <- function(stimuli, prob_correct, num_trials = 100, learning = FALSE, adaptive = FALSE) {
+
   # track data we want to plot
   stim_dat <- tibble(stimulus = stimuli, 
                      prob_correct = prob_correct,
@@ -85,7 +181,7 @@ simulate_subject <- function(stimuli, prob_correct, num_trials = 100, learning =
     if(p>1) p = 1 # can't be >1
     correcto = rbinom(1, 1, p)
     
-    if (correcto) {
+    if (correcto) { # && frequency <= 5
       stim_dat[curr_index,]$cur_priority = 
         stim_dat[curr_index,]$cur_priority + CORRECT_PRIORITY_INCREASE
       stim_dat[curr_index,]$correct = stim_dat[curr_index,]$correct + 1 # increase correct count
@@ -109,13 +205,15 @@ simulate_subject <- function(stimuli, prob_correct, num_trials = 100, learning =
   }
   return(stim_dat)
 }
+
+#simulate_adaptive_subject(literacy_stim, .5, num_trials = 520, learning = TRUE)
 ```
 
-```{r simulate-experiment}
-simulate_experiment <- function(stimuli, prob_correct, num_trials, learning, Nsubj=10) {
+```{r simulate-adaptive-experiment}
+simulate_adaptive_experiment <- function(stimuli, prob_correct, num_trials, learning, Nsubj=10) {
   dat <- tibble()
   for(i in 1:Nsubj) {
-    s_dat = simulate_subject(stimuli, prob_correct, num_trials = 560, learning = FALSE)
+    s_dat = simulate_adaptive_subject(stimuli, prob_correct, num_trials, learning)
     s_dat$sim = i
     dat <- bind_rows(dat, s_dat)
   }
@@ -123,8 +221,8 @@ simulate_experiment <- function(stimuli, prob_correct, num_trials, learning, Nsu
 }
 
 # test 
-e_dat <- simulate_experiment(literacy_stim, lit_prob_correct, 
-                 num_trials = NUM_TRIALS, learning = F, Nsubj=20)
+e_dat <- simulate_adaptive_experiment(literacy_stim, lit_prob_correct, 
+                 num_trials = NUM_TRIALS, learning = T, Nsubj=30)
 
 # summarise results 
 agg <- e_dat %>% group_by(stimulus) %>%
@@ -133,8 +231,18 @@ agg <- e_dat %>% group_by(stimulus) %>%
   summarise(freq = mean(freq), priority_delta = mean(priority_delta),
             prop_correct = mean(prop_correct)) 
 
+  # summarise(freq = mean(freq), priority_delta = mean(priority_delta),
+  #           prop_correct_Q1 = prop_correct = mean(prop_correct),
+  #           prop_correct_Q2 = prop_correct = mean(prop_correct),
+  #           prop_correct_Q3 = prop_correct = mean(prop_correct),
+  #           prop_correct_Q4 = prop_correct = mean(prop_correct)) 
+# View(agg)
+agg$stimulus <- ordered(agg$stimulus, levels=c("A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L", "M", "N", "O", "P", "Q", "R", "S", "T", "U", "V", "W", "X", "Y", "Z", "a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k", "l", "m", "n", "o", "p", "q", "r", "s", "t", "u", "v", "w", "x", "y","z"))
 agg %>% ggplot(aes(y=stimulus, x=prop_correct)) + 
-  geom_point() + theme_bw()
+  geom_point() + theme_bw() + xlim(0, 1)
+
+ggsave(file="AA-3.5-T.png", width=5, height=5)
+# file name: "CONDITION-ABILITY-LEARNING"
 ```
 
 
@@ -168,8 +276,18 @@ make_new_new_table <- function(new_table) {
 
 lit_sim_pt5 = simulate_subject(literacy_stim, lit_prob_correct, num_trials = NUM_TRIALS, learning = FALSE)
 # View(lit_sim_pt5)
-new_lit_sim_pt5_table <- make_new_new_table(lit_sim_pt5)
 
+e_dat_lit_sim_pt5 <- simulate_experiment(literacy_stim, lit_prob_correct, 
+                 num_trials = NUM_TRIALS, learning = F, Nsubj=30)
+
+View(e_dat_lit_sim_pt5)
+new_e_dat_lit_sim_pt5_table <- make_new_new_table(e_dat_lit_sim_pt5)
+View(new_e_dat_lit_sim_pt5_table)
+# summarise results 
+agg <- new_e_dat_lit_sim_pt5_table %>% group_by(stimulus) %>%
+  summarise(freq = mean(frequency)) 
+
+View(agg)
 new_lit_sim_pt5_table$stimulus <- ordered(new_lit_sim_pt5_table$stimulus, levels=c("A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L", "M", "N", "O", "P", "Q", "R", "S", "T", "U", "V", "W", "X", "Y", "Z", "a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k", "l", "m", "n", "o", "p", "q", "r", "s", "t", "u", "v", "w", "x", "y","z"))
 # View(new_lit_sim_pt5_table)         
 
